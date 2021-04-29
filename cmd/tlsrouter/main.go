@@ -15,12 +15,15 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,6 +32,8 @@ var (
 	cfgFile      = flag.String("conf", "", "configuration file")
 	listen       = flag.String("listen", ":443", "listening port")
 	helloTimeout = flag.Duration("hello-timeout", 3*time.Second, "how long to wait for the TLS ClientHello")
+	useProxy     = flag.Bool("use-proxy", false, "backends should be reached via a proxy server ")
+	useProxyAuth = flag.String("use-proxy-auth", "", "credentials to authenticate to a proxy server ")
 )
 
 func main() {
@@ -162,6 +167,28 @@ func (c *Conn) proxy() {
 		}
 		if _, err := fmt.Fprintf(c.backendConn, "PROXY %s %s %s %d %d\r\n", family, remote.IP, local.IP, remote.Port, local.Port); err != nil {
 			c.internalError("failed to send PROXY header to %q: %s", c.backend, err)
+			return
+		}
+	}
+
+	// Start a two-way communications to a forward proxy which
+	// expects a HTTP CONNECT including the requested resource.
+	if *useProxy {
+		backendPort := strings.Split(*listen, ":")[1]
+		proxyAuth := ""
+		if  *useProxyAuth != "" {
+			proxyAuth = fmt.Sprintf("Proxy-Authorization: Basic %s\r\n", *useProxyAuth)
+		}
+		connectBuf := fmt.Sprintf("CONNECT %s:%s HTTP/1.1\r\n%s\r\n", c.hostname, backendPort, proxyAuth)
+		c.logf("HTTP CONNECT string: %s", strconv.Quote(connectBuf))
+		if _, err = io.Copy(c.backendConn, strings.NewReader(connectBuf)); err != nil {
+			c.internalError("failed to create a TCP tunnel using HTTP CONNECT to %q: %s", c.hostname, err)
+			return
+		}
+		status, err := bufio.NewReader(c.backendConn).ReadString('\n')
+		c.logf("proxy %s responded with %s", strconv.Quote(c.backend), strconv.Quote(status))
+		if status != "HTTP/1.1 200 Connection established\r\n" {
+			c.internalError("failed to create a TCP tunnel using HTTP CONNECT to %q: %s", c.hostname, err)
 			return
 		}
 	}

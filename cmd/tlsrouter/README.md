@@ -6,6 +6,10 @@ TLSRouter is a TLS proxy that routes connections to backends based on
 the TLS SNI (Server Name Indication) of the TLS handshake. It carries
 no encryption keys and cannot decode the traffic that it proxies.
 
+It can however provide HTTP CONNECT encapsulation to enable it to use
+forwarding proxies like Squid to connect to the backends; Basic 
+authentication via the header Proxy-Authorization is supported as well
+
 ## Installation
 
 Install TLSRouter via `go get`:
@@ -49,3 +53,5 @@ Optional flags are:
  * `-listen <addr>`: set the listen address (default `:443`)
  * `-hello-timeout <duration>`: how long to wait for the start of the
    TLS handshake (default `3s`)
+ * `-use-proxy <boolean>`: backends should be reached via a proxy server (default `false`)
+ * `-use-proxy-auth <base64 encoded string> `: credentials to authenticate to a proxy server (default `<empty>`)
